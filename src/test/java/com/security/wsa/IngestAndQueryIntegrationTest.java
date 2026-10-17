@@ -142,6 +142,141 @@ class IngestAndQueryIntegrationTest {
                 .contains(0);
     }
 
+    @Test
+    void scoreAttackTypeAndReceivedAtRoundTripThroughPostgres() {
+        SecurityEventDto event = new SecurityEventDto(
+                "evt-round-trip",
+                Instant.parse("2026-05-20T14:00:00Z"),
+                14227, "pol_web1",
+                "203.0.113.42", "www.example.com", "/admin", "POST", 403,
+                "Mozilla/5.0",
+                new RuleDto("950001", "SQL_INJECTION", "SQL Injection Attack Detected",
+                        Severity.CRITICAL, AttackCategory.INJECTION),
+                Action.DENY,
+                new GeoLocationDto("CN", "Beijing"),
+                1024L, 256L);
+
+        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+                "/v1/events/ingest",
+                HttpMethod.POST,
+                new HttpEntity<>(List.of(event)),
+                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                });
+        assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        ResponseEntity<SamplesResponse> samples = rest.getForEntity(
+                "/v1/events/samples?limit=1", SamplesResponse.class);
+        assertThat(samples.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(samples.getBody()).isNotNull();
+        assertThat(samples.getBody().events()).hasSize(1);
+
+        SecurityEvent persisted = samples.getBody().events().get(0);
+        // CRITICAL(40) + DENY(20) + /admin path(15) + no repeat(0) = 75
+        assertThat(persisted.threatScore()).isEqualTo(75);
+        assertThat(persisted.attackType()).isEqualTo("SQL/Command Injection");
+        assertThat(persisted.receivedAt()).isNotNull();
+        assertThat(persisted.eventId()).isEqualTo("evt-round-trip");
+        assertThat(persisted.rule().category()).isEqualTo(AttackCategory.INJECTION);
+    }
+
+    @Test
+    void reIngestingTheSameBatchIsIdempotentOnEventId() {
+        Instant base = Instant.parse("2026-05-20T14:00:00Z");
+        List<SecurityEventDto> batch = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            batch.add(injectionDeny("evt-dup-" + i, base.plusSeconds(i), "203.0.113." + (10 + i)));
+        }
+
+        ResponseEntity<List<SecurityEvent>> firstPost = rest.exchange(
+                "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(batch),
+                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                });
+        assertThat(firstPost.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(firstPost.getBody()).allSatisfy(e -> assertThat(e.id()).isNotNull());
+
+        ResponseEntity<List<SecurityEvent>> secondPost = rest.exchange(
+                "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(batch),
+                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                });
+        assertThat(secondPost.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(secondPost.getBody()).allSatisfy(e -> assertThat(e.id()).isNull());
+
+        ResponseEntity<StatsSummaryResponse> stats = rest.getForEntity(
+                "/v1/stats/summary", StatsSummaryResponse.class);
+        assertThat(stats.getBody()).isNotNull();
+        assertThat(stats.getBody().totalEvents()).isEqualTo(20L);
+    }
+
+    @Test
+    void repeatOffenderBonusFiresAfterMoreThanFiveEventsFromSameIp() {
+        Instant base = Instant.parse("2026-05-20T14:00:00Z");
+        List<SecurityEventDto> seven = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            seven.add(new SecurityEventDto(
+                    "evt-repeat-" + i,
+                    base.plusSeconds(i),
+                    14227, "pol_web1",
+                    "203.0.113.99", "www.example.com", "/", "GET", 200,
+                    "Mozilla/5.0",
+                    new RuleDto("913001", "BOT_ACTIVITY", "Automated Bot Request",
+                            Severity.LOW, AttackCategory.BOT),
+                    Action.MONITOR,
+                    new GeoLocationDto("US", "San Francisco"),
+                    100L, 100L));
+        }
+
+        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+                "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(seven),
+                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                });
+        assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        ResponseEntity<SamplesResponse> samples = rest.getForEntity(
+                "/v1/events/samples?limit=10", SamplesResponse.class);
+        assertThat(samples.getBody()).isNotNull();
+        List<SecurityEvent> events = samples.getBody().events();
+        assertThat(events).hasSize(7);
+
+        // Newest-first ordering: events[0] is the 7th ingested — sees 6 prior same-IP events.
+        // LOW(10) + MONITOR(0) + path "/"(0) + repeat(15) = 25.
+        assertThat(events.get(0).eventId()).isEqualTo("evt-repeat-6");
+        assertThat(events.get(0).threatScore()).isEqualTo(25);
+        // Every earlier event sees <= 5 priors from this IP: no bonus. LOW only.
+        for (int i = 1; i < events.size(); i++) {
+            assertThat(events.get(i).threatScore())
+                    .as("event %s should have the base LOW/MONITOR score only", events.get(i).eventId())
+                    .isEqualTo(10);
+        }
+    }
+
+    @Test
+    void singleEventBodyIsAcceptedAlongsideBatch() {
+        SecurityEventDto single = injectionDeny(
+                "evt-single",
+                Instant.parse("2026-05-20T14:00:00Z"),
+                "203.0.113.1");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+                "/v1/events/ingest",
+                HttpMethod.POST,
+                new HttpEntity<>(single, headers),
+                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                });
+        assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(ingest.getBody()).hasSize(1);
+        assertThat(ingest.getBody().get(0).eventId()).isEqualTo("evt-single");
+
+        ResponseEntity<SamplesResponse> samples = rest.getForEntity(
+                "/v1/events/samples?limit=5", SamplesResponse.class);
+        assertThat(samples.getBody()).isNotNull();
+        assertThat(samples.getBody().total()).isEqualTo(1L);
+        assertThat(samples.getBody().events()).extracting(SecurityEvent::eventId)
+                .containsExactly("evt-single");
+    }
+
     private static SecurityEventDto injectionDeny(String eventId, Instant timestamp, String clientIp) {
         return new SecurityEventDto(
                 eventId, timestamp, 14227, "pol_web1",
