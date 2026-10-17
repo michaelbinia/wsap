@@ -7,6 +7,8 @@ import com.security.wsa.model.SecurityEventDto;
 import com.security.wsa.model.enums.Action;
 import com.security.wsa.model.enums.AttackCategory;
 import com.security.wsa.model.enums.Severity;
+import com.security.wsa.config.MiniWsaProperties;
+import com.security.wsa.config.TestProperties;
 import com.security.wsa.repository.SecurityEventRepository;
 import com.security.wsa.service.enrichment.AttackClassifier;
 import com.security.wsa.service.enrichment.ThreatScoreCalculator;
@@ -119,11 +121,12 @@ class IngestionServiceTest {
         SecurityEventRepository realStackRepo = mock(SecurityEventRepository.class);
         when(realStackRepo.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(realStackRepo.countByClientIpSince(any(), any())).thenReturn(0L);
+        MiniWsaProperties props = TestProperties.pdfDefaults();
         ThreatScoreCalculator realCalculator = new ThreatScoreCalculator(List.of(
-                new SeverityEvaluationRule(),
-                new ActionEvaluationRule(),
-                new SensitivePathEvaluationRule(),
-                new RepeatOffenderEvaluationRule()));
+                new SeverityEvaluationRule(props),
+                new ActionEvaluationRule(props),
+                new SensitivePathEvaluationRule(props),
+                new RepeatOffenderEvaluationRule(props)), props);
         AttackClassifier realClassifier = new AttackClassifier();
         IngestionService realStackService = new IngestionService(realStackRepo, realCalculator, realClassifier);
 
