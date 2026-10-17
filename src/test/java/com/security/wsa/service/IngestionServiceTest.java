@@ -23,9 +23,11 @@ import org.mockito.InOrder;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -69,8 +71,10 @@ class IngestionServiceTest {
         ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(repository).countByClientIpInWindow(
                 eq("203.0.113.42"), fromCaptor.capture(), toCaptor.capture(), eq("evt-1"));
-        assertThat(fromCaptor.getValue()).isEqualTo(dto.timestamp().minus(Duration.ofMinutes(10)));
-        assertThat(toCaptor.getValue()).isEqualTo(dto.timestamp());
+        Instant nowRef = Instant.now();
+        assertThat(toCaptor.getValue()).isCloseTo(nowRef, within(5, ChronoUnit.SECONDS));
+        assertThat(fromCaptor.getValue())
+                .isEqualTo(toCaptor.getValue().minus(Duration.ofMinutes(10)));
 
         ArgumentCaptor<SecurityEvent> savedCaptor = ArgumentCaptor.forClass(SecurityEvent.class);
         verify(repository).save(savedCaptor.capture());
@@ -166,15 +170,11 @@ class IngestionServiceTest {
         service.ingestBatch(List.of(first, second));
 
         InOrder inOrder = inOrder(repository);
-        inOrder.verify(repository).countByClientIpInWindow(eq("1.1.1.1"),
-                eq(first.timestamp().minus(Duration.ofMinutes(10))),
-                eq(first.timestamp()),
-                eq("evt-a"));
+        inOrder.verify(repository).countByClientIpInWindow(
+                eq("1.1.1.1"), any(Instant.class), any(Instant.class), eq("evt-a"));
         inOrder.verify(repository).save(any());
-        inOrder.verify(repository).countByClientIpInWindow(eq("1.1.1.1"),
-                eq(second.timestamp().minus(Duration.ofMinutes(10))),
-                eq(second.timestamp()),
-                eq("evt-b"));
+        inOrder.verify(repository).countByClientIpInWindow(
+                eq("1.1.1.1"), any(Instant.class), any(Instant.class), eq("evt-b"));
         inOrder.verify(repository).save(any());
     }
 

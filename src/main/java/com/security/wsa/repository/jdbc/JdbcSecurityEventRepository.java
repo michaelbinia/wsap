@@ -130,10 +130,10 @@ public class JdbcSecurityEventRepository implements SecurityEventRepository {
     public long countByClientIpInWindow(String clientIp, Instant from, Instant to, String excludeEventId) {
         return jdbc.sql("""
                         SELECT COUNT(*) FROM security_events
-                         WHERE client_ip = :clientIp::inet
-                           AND timestamp >  :fromTs
-                           AND timestamp <  :toTs
-                           AND event_id  <> :excludeEventId
+                         WHERE client_ip   = :clientIp::inet
+                           AND received_at >  :fromTs
+                           AND received_at <  :toTs
+                           AND event_id    <> :excludeEventId
                         """)
                 .param("clientIp", clientIp)
                 .param("fromTs", Timestamp.from(from))
