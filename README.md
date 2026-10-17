@@ -192,14 +192,33 @@ See `python3 scripts/generate.py --help` for every flag.
 
 ## What I'd improve with more time
 
-- Migrate the hot read path to Elasticsearch for native
+- **Kafka in front of ingest.** The real Akamai WSA buffers DLRs
+  through a queue. Today `/v1/events/ingest` holds the client until
+  the write + score + classify loop finishes. At real throughput
+  (millions of events / sec) I would turn ingest into an async flow:
+  the controller validates and publishes to Kafka, returns **202
+  Accepted** immediately, and a consumer group enriches and persists.
+  This also gives us natural backpressure, horizontal scaling of the
+  enrichment workers, and replayability.
+- **Redis cache for stats.** `GET /v1/stats/summary` runs five
+  aggregations per request. For a SOC dashboard polling the same
+  `(configId, from, to)` tuple every few seconds, a short-TTL
+  (30s–5m, tuned to freshness tolerance) read-through cache keyed on
+  the filter triple would collapse most of that load without touching
+  the write path. Samples endpoint is harder to cache cleanly because
+  of pagination, so I'd scope caching to stats first.
+- **Migrate the hot read path to Elasticsearch** for native
   `date_histogram` and ergonomic full-text search over user agents.
-- Backpressure / rate control between the generator and the ingest API.
-- Dead-letter queue for ingest failures.
-- Expose Prometheus-formatted metrics via `/actuator/prometheus` and
-  wire them to Micrometer; add per-endpoint `@Operation` on the
+  Keep Postgres as the system of record.
+- **Backpressure / rate control** between the generator and the ingest
+  API — becomes less critical once Kafka is in place, but still needed
+  for client-side protection against runaway producers.
+- **Dead-letter queue** for ingest failures, so poisoned batches don't
+  silently drop. Naturally falls out of the Kafka design above.
+- **Expose Prometheus-formatted metrics** via `/actuator/prometheus`
+  and wire them to Micrometer; add per-endpoint `@Operation` on the
   OpenAPI spec for richer Swagger descriptions.
-- Authentication (none today).
+- **Authentication** (none today).
 
 ## Challenges hit and how I solved them
 
