@@ -1,10 +1,13 @@
-"""Unit tests for scripts/generate.py."""
+"""Unit and integration tests for scripts/generate.py."""
 from __future__ import annotations
 
 import datetime as dt
+import json
 import random
 import sys
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -87,6 +90,57 @@ class EventSchemaTests(unittest.TestCase):
         ids_a = [g.random_event(rng_a, now)["eventId"] for _ in range(10)]
         ids_b = [g.random_event(rng_b, now)["eventId"] for _ in range(10)]
         self.assertEqual(ids_a, ids_b)
+
+
+class _StubIngestHandler(BaseHTTPRequestHandler):
+    """Collects every POST body into a class-level list and returns 201."""
+
+    received: list[list[dict]] = []
+
+    def do_POST(self) -> None:  # noqa: N802  (BaseHTTPRequestHandler contract)
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length)
+        type(self).received.append(json.loads(body))
+        self.send_response(201)
+        self.end_headers()
+
+    def log_message(self, *_args, **_kwargs) -> None:
+        pass
+
+
+class IntegrationTests(unittest.TestCase):
+    """Spin up a stdlib HTTPServer and point the generator at it."""
+
+    def test_post_batches_sends_every_event_in_chunks_of_batch_size(self) -> None:
+        _StubIngestHandler.received = []
+        server = HTTPServer(("127.0.0.1", 0), _StubIngestHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            rng = random.Random(1)
+            now = dt.datetime(2026, 5, 20, 14, 0, tzinfo=dt.timezone.utc)
+            events = [g.random_event(rng, now) for _ in range(25)]
+
+            sent, rejected, elapsed = g.post_batches(
+                events,
+                f"http://127.0.0.1:{port}/v1/events/ingest",
+                batch_size=10,
+                fail_fast=True,
+            )
+
+            self.assertEqual(sent, 25)
+            self.assertEqual(rejected, 0)
+            self.assertGreaterEqual(elapsed, 0)
+            self.assertEqual([len(b) for b in _StubIngestHandler.received], [10, 10, 5])
+
+            first_event = _StubIngestHandler.received[0][0]
+            for key in REQUIRED_FIELDS:
+                self.assertIn(key, first_event)
+            self.assertIn(first_event["rule"]["category"], g.RULE_TEMPLATES.keys())
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":
