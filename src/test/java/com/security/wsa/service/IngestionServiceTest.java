@@ -10,6 +10,10 @@ import com.security.wsa.model.enums.Severity;
 import com.security.wsa.repository.SecurityEventRepository;
 import com.security.wsa.service.enrichment.AttackClassifier;
 import com.security.wsa.service.enrichment.ThreatScoreCalculator;
+import com.security.wsa.service.enrichment.rules.ActionEvaluationRule;
+import com.security.wsa.service.enrichment.rules.RepeatOffenderEvaluationRule;
+import com.security.wsa.service.enrichment.rules.SensitivePathEvaluationRule;
+import com.security.wsa.service.enrichment.rules.SeverityEvaluationRule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -108,6 +112,38 @@ class IngestionServiceTest {
         SecurityEvent saved = service.ingestOne(dto);
 
         assertThat(saved.geoLocation()).isNull();
+    }
+
+    @Test
+    void ingestOneRunsTheRealScoringStackAndComputesPdfScore() {
+        SecurityEventRepository realStackRepo = mock(SecurityEventRepository.class);
+        when(realStackRepo.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(realStackRepo.countByClientIpSince(any(), any())).thenReturn(0L);
+        ThreatScoreCalculator realCalculator = new ThreatScoreCalculator(List.of(
+                new SeverityEvaluationRule(),
+                new ActionEvaluationRule(),
+                new SensitivePathEvaluationRule(),
+                new RepeatOffenderEvaluationRule()));
+        AttackClassifier realClassifier = new AttackClassifier();
+        IngestionService realStackService = new IngestionService(realStackRepo, realCalculator, realClassifier);
+
+        SecurityEventDto input = dto("evt-real", "203.0.113.42",
+                Instant.parse("2026-05-20T14:32:10Z"),
+                Severity.CRITICAL, Action.DENY, AttackCategory.INJECTION, "/admin");
+
+        SecurityEvent saved = realStackService.ingestOne(input);
+
+        // CRITICAL(40) + DENY(20) + /admin path(15) + no repeat(0) = 75
+        assertThat(saved.threatScore()).isEqualTo(75);
+        assertThat(saved.attackType()).isEqualTo("SQL/Command Injection");
+        assertThat(saved.receivedAt()).isNotNull();
+        assertThat(saved.id()).isNull();
+        // Original DLR fields preserved
+        assertThat(saved.eventId()).isEqualTo("evt-real");
+        assertThat(saved.clientIp()).isEqualTo("203.0.113.42");
+        assertThat(saved.timestamp()).isEqualTo(Instant.parse("2026-05-20T14:32:10Z"));
+        assertThat(saved.rule().category()).isEqualTo(AttackCategory.INJECTION);
+        assertThat(saved.action()).isEqualTo(Action.DENY);
     }
 
     @Test
