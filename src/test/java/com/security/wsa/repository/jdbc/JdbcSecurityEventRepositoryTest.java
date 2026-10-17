@@ -59,7 +59,8 @@ class JdbcSecurityEventRepositoryTest {
         repo.save(event("1.1.1.1", base));                     // inside
         repo.save(event("2.2.2.2", base.minusSeconds(60)));   // wrong IP
 
-        assertThat(repo.countByClientIpSince("1.1.1.1", threshold)).isEqualTo(3L);
+        assertThat(repo.countByClientIpInWindow("1.1.1.1", threshold, Instant.parse("2999-01-01T00:00:00Z"), "no-such-event"))
+                .isEqualTo(3L);
     }
 
     @Test
