@@ -93,6 +93,11 @@ Guidelines for AI coding assistants working on this repository.
 - **Writes are idempotent on `event_id`.** The schema has
   `UNIQUE (event_id)` and inserts use `ON CONFLICT (event_id) DO
   NOTHING`. Re-ingesting the same event must not duplicate rows.
+- **Replay semantics.** On duplicate `event_id` the ingest endpoint
+  returns the **originally-stored row** with `status: DUPLICATE`. It
+  does **not** return freshly computed enrichment values. The first
+  write wins; a replay reflects what is actually in storage, not what
+  a fresh scoring pass would produce now.
 - **Validation errors are structured.** 400 responses include
   `fieldErrors[]` with the offending field path and, for batch requests,
   the event index.

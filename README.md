@@ -141,8 +141,8 @@ All endpoints produce and consume JSON. Interactive UI:
 
 ### POST `/v1/events/ingest`
 
-Accepts a single event JSON object **or** a batch (array). Returns 201
-with the persisted `List<SecurityEvent>`.
+Accepts a single event JSON object **or** a batch (array). Returns a
+JSON array of per-item `{ event, status }` objects.
 
 ```bash
 # Single event
@@ -168,6 +168,22 @@ curl -sS -X POST localhost:8080/v1/events/ingest \
 
 Validation errors come back as 400 with `fieldErrors[]` and (for batch
 requests) the offending event index.
+
+**Response shape.** The ingest endpoint always returns a JSON array of
+`{ event, status }` objects, one per submitted event. `status` is
+`"CREATED"` for freshly-stored events and `"DUPLICATE"` for events
+whose `event_id` was already stored. In the duplicate case the `event`
+payload carries the **originally-stored** values (including the
+original `receivedAt` and `threatScore`), not freshly recomputed ones.
+HTTP status is `201 Created` if at least one event was created,
+otherwise `200 OK`.
+
+```json
+[
+  { "event": { "...": "..." }, "status": "CREATED" },
+  { "event": { "...": "..." }, "status": "DUPLICATE" }
+]
+```
 
 ### GET `/v1/stats/summary`
 

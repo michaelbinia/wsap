@@ -3,6 +3,7 @@ package com.security.wsa;
 import com.security.wsa.controller.ErrorResponse;
 import com.security.wsa.controller.FieldErrorDetail;
 import com.security.wsa.model.GeoLocationDto;
+import com.security.wsa.model.IngestResult;
 import com.security.wsa.model.RuleDto;
 import com.security.wsa.model.SamplesResponse;
 import com.security.wsa.model.SecurityEvent;
@@ -31,11 +32,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
@@ -73,11 +76,11 @@ class IngestAndQueryIntegrationTest {
             batch.add(botMonitor("evt-bot-" + i, base.plusSeconds(100 + i), "198.51.100." + (10 + i)));
         }
 
-        ResponseEntity<List<SecurityEvent>> ingestResponse = rest.exchange(
+        ResponseEntity<List<IngestResult>> ingestResponse = rest.exchange(
                 "/v1/events/ingest",
                 HttpMethod.POST,
                 new HttpEntity<>(batch),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(ingestResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(ingestResponse.getBody()).hasSize(20);
@@ -156,11 +159,11 @@ class IngestAndQueryIntegrationTest {
                 new GeoLocationDto("CN", "Beijing"),
                 1024L, 256L);
 
-        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+        ResponseEntity<List<IngestResult>> ingest = rest.exchange(
                 "/v1/events/ingest",
                 HttpMethod.POST,
                 new HttpEntity<>(List.of(event)),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
@@ -187,19 +190,25 @@ class IngestAndQueryIntegrationTest {
             batch.add(injectionDeny("evt-dup-" + i, base.plusSeconds(i), "203.0.113." + (10 + i)));
         }
 
-        ResponseEntity<List<SecurityEvent>> firstPost = rest.exchange(
+        ResponseEntity<List<IngestResult>> firstPost = rest.exchange(
                 "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(batch),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(firstPost.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(firstPost.getBody()).allSatisfy(e -> assertThat(e.id()).isNotNull());
+        assertThat(firstPost.getBody()).allSatisfy(r -> {
+            assertThat(r.status()).isEqualTo(IngestResult.Status.CREATED);
+            assertThat(r.event().id()).isNotNull();
+        });
 
-        ResponseEntity<List<SecurityEvent>> secondPost = rest.exchange(
+        ResponseEntity<List<IngestResult>> secondPost = rest.exchange(
                 "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(batch),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
-        assertThat(secondPost.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(secondPost.getBody()).allSatisfy(e -> assertThat(e.id()).isNull());
+        assertThat(secondPost.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(secondPost.getBody()).allSatisfy(r -> {
+            assertThat(r.status()).isEqualTo(IngestResult.Status.DUPLICATE);
+            assertThat(r.event().id()).isNotNull();
+        });
 
         ResponseEntity<StatsSummaryResponse> stats = rest.getForEntity(
                 "/v1/stats/summary", StatsSummaryResponse.class);
@@ -225,9 +234,9 @@ class IngestAndQueryIntegrationTest {
                     100L, 100L));
         }
 
-        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+        ResponseEntity<List<IngestResult>> ingest = rest.exchange(
                 "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(seven),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
@@ -259,15 +268,16 @@ class IngestAndQueryIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+        ResponseEntity<List<IngestResult>> ingest = rest.exchange(
                 "/v1/events/ingest",
                 HttpMethod.POST,
                 new HttpEntity<>(single, headers),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(ingest.getBody()).hasSize(1);
-        assertThat(ingest.getBody().get(0).eventId()).isEqualTo("evt-single");
+        assertThat(ingest.getBody().get(0).status()).isEqualTo(IngestResult.Status.CREATED);
+        assertThat(ingest.getBody().get(0).event().eventId()).isEqualTo("evt-single");
 
         ResponseEntity<SamplesResponse> samples = rest.getForEntity(
                 "/v1/events/samples?limit=5", SamplesResponse.class);
@@ -275,6 +285,92 @@ class IngestAndQueryIntegrationTest {
         assertThat(samples.getBody().total()).isEqualTo(1L);
         assertThat(samples.getBody().events()).extracting(SecurityEvent::eventId)
                 .containsExactly("evt-single");
+    }
+
+    @Test
+    void replayingSameEventIdReturnsStoredRowWithDuplicateStatus() throws Exception {
+        SecurityEventDto dto = new SecurityEventDto(
+                "evt-replay-1",
+                Instant.parse("2026-05-20T14:00:00Z"),
+                14227, "pol_web1",
+                "203.0.113.42", "www.example.com", "/admin", "POST", 403,
+                "Mozilla/5.0",
+                new RuleDto("950001", "SQL_INJECTION", "SQL Injection Attack Detected",
+                        Severity.CRITICAL, AttackCategory.INJECTION),
+                Action.DENY,
+                new GeoLocationDto("CN", "Beijing"),
+                1024L, 256L);
+
+        ResponseEntity<List<IngestResult>> first = rest.exchange(
+                "/v1/events/ingest",
+                HttpMethod.POST,
+                new HttpEntity<>(List.of(dto)),
+                new ParameterizedTypeReference<List<IngestResult>>() {
+                });
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(first.getBody()).hasSize(1);
+        assertThat(first.getBody().get(0).status()).isEqualTo(IngestResult.Status.CREATED);
+        Instant firstReceivedAt = first.getBody().get(0).event().receivedAt();
+        int firstScore = first.getBody().get(0).event().threatScore();
+        Long firstId = first.getBody().get(0).event().id();
+
+        // Inflate the burst count for 203.0.113.42 so a fresh re-score would differ.
+        List<SecurityEventDto> inflaters = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            inflaters.add(new SecurityEventDto(
+                    "evt-inflate-" + i, Instant.parse("2026-05-20T14:00:0" + i + "Z"),
+                    14227, "pol_web1", "203.0.113.42", "www.example.com", "/admin",
+                    "POST", 403, "Mozilla/5.0",
+                    new RuleDto("950001", "SQL_INJECTION", null, Severity.CRITICAL, AttackCategory.INJECTION),
+                    Action.DENY, new GeoLocationDto("CN", "Beijing"), 1024L, 256L));
+        }
+        rest.exchange("/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(inflaters),
+                new ParameterizedTypeReference<List<IngestResult>>() {
+                });
+
+        ResponseEntity<List<IngestResult>> replay = rest.exchange(
+                "/v1/events/ingest",
+                HttpMethod.POST,
+                new HttpEntity<>(List.of(dto)),
+                new ParameterizedTypeReference<List<IngestResult>>() {
+                });
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(replay.getBody()).hasSize(1);
+        assertThat(replay.getBody().get(0).status()).isEqualTo(IngestResult.Status.DUPLICATE);
+
+        SecurityEvent fromReplay = replay.getBody().get(0).event();
+        assertThat(fromReplay.id()).isEqualTo(firstId);
+        // Postgres TIMESTAMPTZ stores at microsecond precision and may round
+        // the trailing nanoseconds; one micro of tolerance makes the equality
+        // check robust while still proving the stored value survives replay.
+        assertThat(fromReplay.receivedAt())
+                .isCloseTo(firstReceivedAt, within(1, ChronoUnit.MICROS));
+        assertThat(fromReplay.threatScore()).isEqualTo(firstScore);
+    }
+
+    @Test
+    void mixedBatchOfNewAndDuplicateReturnsPerItemStatusAnd201() {
+        SecurityEventDto first = injectionDeny("evt-mix-1",
+                Instant.parse("2026-05-20T14:00:00Z"), "203.0.113.1");
+        rest.exchange("/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(List.of(first)),
+                new ParameterizedTypeReference<List<IngestResult>>() {
+                });
+
+        SecurityEventDto dup = first;
+        SecurityEventDto second = injectionDeny("evt-mix-2",
+                Instant.parse("2026-05-20T14:01:00Z"), "203.0.113.2");
+
+        ResponseEntity<List<IngestResult>> res = rest.exchange(
+                "/v1/events/ingest",
+                HttpMethod.POST,
+                new HttpEntity<>(List.of(dup, second)),
+                new ParameterizedTypeReference<List<IngestResult>>() {
+                });
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(res.getBody())
+                .extracting(IngestResult::status)
+                .containsExactly(IngestResult.Status.DUPLICATE, IngestResult.Status.CREATED);
     }
 
     private static SecurityEventDto injectionDeny(String eventId, Instant timestamp, String clientIp) {

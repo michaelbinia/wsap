@@ -1,6 +1,7 @@
 package com.security.wsa.service;
 
 import com.security.wsa.model.GeoLocationDto;
+import com.security.wsa.model.IngestResult;
 import com.security.wsa.model.RuleDto;
 import com.security.wsa.model.SecurityEvent;
 import com.security.wsa.model.SecurityEventDto;
@@ -51,7 +52,16 @@ class IngestionServiceTest {
         service = new IngestionService(repository, threatScoreCalculator, attackClassifier,
                 TestProperties.pdfDefaults());
 
-        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.save(any())).thenAnswer(invocation -> withAssignedId(invocation.getArgument(0), 1L));
+    }
+
+    private static SecurityEvent withAssignedId(SecurityEvent e, Long id) {
+        return new SecurityEvent(
+                id, e.eventId(), e.timestamp(), e.configId(), e.policyId(),
+                e.clientIp(), e.hostname(), e.path(), e.method(), e.statusCode(),
+                e.userAgent(), e.rule(), e.action(), e.geoLocation(),
+                e.requestSize(), e.responseSize(),
+                e.attackType(), e.threatScore(), e.receivedAt());
     }
 
     @Test
@@ -65,7 +75,7 @@ class IngestionServiceTest {
         when(threatScoreCalculator.calculateScore(dto, 7L)).thenReturn(85);
         when(attackClassifier.classify(AttackCategory.INJECTION)).thenReturn("SQL/Command Injection");
 
-        SecurityEvent saved = service.ingestOne(dto);
+        IngestResult result = service.ingestOne(dto);
 
         ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
@@ -88,7 +98,9 @@ class IngestionServiceTest {
         assertThat(persisted.action()).isEqualTo(Action.DENY);
         assertThat(persisted.receivedAt()).isNotNull();
 
-        assertThat(saved).isSameAs(persisted);
+        assertThat(result.status()).isEqualTo(IngestResult.Status.CREATED);
+        assertThat(result.event().id()).isEqualTo(1L);
+        assertThat(result.event().eventId()).isEqualTo("evt-1");
     }
 
     @Test
@@ -101,7 +113,7 @@ class IngestionServiceTest {
         when(threatScoreCalculator.calculateScore(any(), anyLong())).thenReturn(99);
         when(attackClassifier.classify(AttackCategory.BOT)).thenReturn("Bot Activity");
 
-        SecurityEvent saved = service.ingestOne(dto);
+        SecurityEvent saved = service.ingestOne(dto).event();
 
         assertThat(saved.attackType()).isEqualTo("Bot Activity");
         assertThat(saved.threatScore()).isEqualTo(99);
@@ -119,7 +131,7 @@ class IngestionServiceTest {
                 1024L, 256L);
         when(attackClassifier.classify(any())).thenReturn("Bot Activity");
 
-        SecurityEvent saved = service.ingestOne(dto);
+        SecurityEvent saved = service.ingestOne(dto).event();
 
         assertThat(saved.geoLocation()).isNull();
     }
@@ -127,7 +139,7 @@ class IngestionServiceTest {
     @Test
     void ingestOneRunsTheRealScoringStackAndComputesPdfScore() {
         SecurityEventRepository realStackRepo = mock(SecurityEventRepository.class);
-        when(realStackRepo.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(realStackRepo.save(any())).thenAnswer(invocation -> withAssignedId(invocation.getArgument(0), 1L));
         when(realStackRepo.countByClientIpInWindow(any(), any(), any(), any())).thenReturn(0L);
         MiniWsaProperties props = TestProperties.pdfDefaults();
         ThreatScoreCalculator realCalculator = new ThreatScoreCalculator(List.of(
@@ -142,13 +154,13 @@ class IngestionServiceTest {
                 Instant.parse("2026-05-20T14:32:10Z"),
                 Severity.CRITICAL, Action.DENY, AttackCategory.INJECTION, "/admin");
 
-        SecurityEvent saved = realStackService.ingestOne(input);
+        SecurityEvent saved = realStackService.ingestOne(input).event();
 
         // CRITICAL(40) + DENY(20) + /admin path(15) + no repeat(0) = 75
         assertThat(saved.threatScore()).isEqualTo(75);
         assertThat(saved.attackType()).isEqualTo("SQL/Command Injection");
         assertThat(saved.receivedAt()).isNotNull();
-        assertThat(saved.id()).isNull();
+        assertThat(saved.id()).isEqualTo(1L);
         // Original DLR fields preserved
         assertThat(saved.eventId()).isEqualTo("evt-real");
         assertThat(saved.clientIp()).isEqualTo("203.0.113.42");

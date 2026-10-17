@@ -1,6 +1,6 @@
 package com.security.wsa.controller;
 
-import com.security.wsa.model.SecurityEvent;
+import com.security.wsa.model.IngestResult;
 import com.security.wsa.model.SecurityEventDto;
 import com.security.wsa.service.IngestionService;
 import jakarta.validation.ConstraintViolation;
@@ -29,7 +29,7 @@ public class IngestionController {
     }
 
     @PostMapping("/ingest")
-    public ResponseEntity<List<SecurityEvent>> ingest(@RequestBody List<SecurityEventDto> events) {
+    public ResponseEntity<List<IngestResult>> ingest(@RequestBody List<SecurityEventDto> events) {
         if (events == null || events.isEmpty()) {
             throw new IllegalArgumentException("At least one event required");
         }
@@ -45,6 +45,10 @@ public class IngestionController {
             throw new BatchValidationException(errors);
         }
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(ingestionService.ingestBatch(events));
+        List<IngestResult> results = ingestionService.ingestBatch(events);
+        boolean anyCreated = results.stream()
+                .anyMatch(r -> r.status() == IngestResult.Status.CREATED);
+        HttpStatus status = anyCreated ? HttpStatus.CREATED : HttpStatus.OK;
+        return ResponseEntity.status(status).body(results);
     }
 }

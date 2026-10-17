@@ -9,10 +9,13 @@ import com.security.wsa.model.TimeSeriesBucket;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public interface SecurityEventRepository {
 
     SecurityEvent save(SecurityEvent event);
+
+    Optional<SecurityEvent> findByEventId(String eventId);
 
     long countByClientIpInWindow(String clientIp, Instant from, Instant to, String excludeEventId);
 
