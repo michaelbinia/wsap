@@ -1,5 +1,7 @@
 package com.security.wsa.service.enrichment;
 
+import com.security.wsa.config.MiniWsaProperties;
+import com.security.wsa.config.TestProperties;
 import com.security.wsa.model.SecurityEventDto;
 import com.security.wsa.model.enums.Action;
 import com.security.wsa.model.enums.Severity;
@@ -17,10 +19,11 @@ class ThreatScoreCalculatorTest {
 
     @Test
     void sumsEveryRuleContribution() {
+        MiniWsaProperties props = TestProperties.pdfDefaults();
         ThreatScoreCalculator calc = new ThreatScoreCalculator(List.of(
                 (event, count) -> 10,
                 (event, count) -> 25,
-                (event, count) -> 5));
+                (event, count) -> 5), props);
 
         int score = calc.calculateScore(TestFixtures.event(Severity.LOW, Action.MONITOR, "/"), 0L);
 
@@ -29,10 +32,11 @@ class ThreatScoreCalculatorTest {
 
     @Test
     void capsScoreAt100() {
+        MiniWsaProperties props = TestProperties.pdfDefaults();
         ThreatScoreCalculator calc = new ThreatScoreCalculator(List.of(
                 (event, count) -> 60,
                 (event, count) -> 50,
-                (event, count) -> 30));
+                (event, count) -> 30), props);
 
         int score = calc.calculateScore(TestFixtures.event(Severity.LOW, Action.MONITOR, "/"), 0L);
 
@@ -41,7 +45,8 @@ class ThreatScoreCalculatorTest {
 
     @Test
     void returnsZeroWhenNoRulesAreRegistered() {
-        ThreatScoreCalculator calc = new ThreatScoreCalculator(List.of());
+        MiniWsaProperties props = TestProperties.pdfDefaults();
+        ThreatScoreCalculator calc = new ThreatScoreCalculator(List.of(), props);
 
         int score = calc.calculateScore(TestFixtures.event(Severity.CRITICAL, Action.DENY, "/admin/login"), 100L);
 
@@ -50,11 +55,13 @@ class ThreatScoreCalculatorTest {
 
     @Test
     void composesTheFourProductionRulesForTheWorstCaseEvent() {
+        MiniWsaProperties props = TestProperties.pdfDefaults();
         ThreatScoreCalculator calc = new ThreatScoreCalculator(List.of(
-                new SeverityEvaluationRule(),
-                new ActionEvaluationRule(),
-                new SensitivePathEvaluationRule(),
-                new RepeatOffenderEvaluationRule()));
+                new SeverityEvaluationRule(props),
+                new ActionEvaluationRule(props),
+                new SensitivePathEvaluationRule(props),
+                new RepeatOffenderEvaluationRule(props)),
+                props);
 
         SecurityEventDto event = TestFixtures.event(Severity.CRITICAL, Action.DENY, "/api/v1/admin/login");
 
@@ -64,11 +71,13 @@ class ThreatScoreCalculatorTest {
 
     @Test
     void composesTheFourProductionRulesWithoutRepeatOffender() {
+        MiniWsaProperties props = TestProperties.pdfDefaults();
         ThreatScoreCalculator calc = new ThreatScoreCalculator(List.of(
-                new SeverityEvaluationRule(),
-                new ActionEvaluationRule(),
-                new SensitivePathEvaluationRule(),
-                new RepeatOffenderEvaluationRule()));
+                new SeverityEvaluationRule(props),
+                new ActionEvaluationRule(props),
+                new SensitivePathEvaluationRule(props),
+                new RepeatOffenderEvaluationRule(props)),
+                props);
 
         SecurityEventDto event = TestFixtures.event(Severity.MEDIUM, Action.ALERT, "/health");
 

@@ -47,6 +47,43 @@ client -> SamplesController -----> SamplesService ----> SecurityEventRepository 
   **AssertJ** for tests. GitHub Actions runs unit + Testcontainers
   integration on every push and PR, plus CodeQL on a weekly cron.
 
+### Configuration
+
+All scoring weights, pagination limits, and the repeat-offender window
+are externalised in `application.yml` under the `mini-wsa.*` prefix:
+
+```yaml
+mini-wsa:
+  stats:
+    top-n: 10
+  samples:
+    default-limit: 20
+    max-limit: 100
+  scoring:
+    max-score: 100
+    severity: { CRITICAL: 40, HIGH: 30, MEDIUM: 20, LOW: 10 }
+    action:   { DENY: 20, ALERT: 10, MONITOR: 0 }
+    sensitive-path:
+      bonus: 15
+      markers: [ /admin, /login ]
+    repeat-offender:
+      bonus: 15
+      threshold: 5
+      window: PT10M   # ISO-8601 duration
+```
+
+Defaults match the assignment PDF exactly. The application refuses to
+start if the config is incomplete (every `Severity` and `Action` enum
+value must appear in its weight map, `maxLimit >= defaultLimit`, etc.).
+Override via environment variables using Spring's relaxed binding:
+`MINI_WSA_SCORING_SEVERITY_CRITICAL=50`,
+`MINI_WSA_SCORING_REPEAT_OFFENDER_WINDOW=PT5M`, and so on.
+
+The `@Max(100)` safety ceiling on the samples `limit` query parameter
+stays hard-coded as a compile-time guard — the YAML's `max-limit`
+documents it rather than driving it, so a config bug can't silently
+accept `limit=1_000_000`.
+
 ## Storage choice
 
 **PostgreSQL 16 with hand-written SQL via `JdbcClient`.** Justification:

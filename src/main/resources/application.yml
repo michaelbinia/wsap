@@ -24,6 +24,33 @@ management:
     health:
       show-details: never
 
+mini-wsa:
+  stats:
+    top-n: 10
+  samples:
+    default-limit: 20
+    max-limit: 100
+  scoring:
+    max-score: 100
+    severity:
+      CRITICAL: 40
+      HIGH: 30
+      MEDIUM: 20
+      LOW: 10
+    action:
+      DENY: 20
+      ALERT: 10
+      MONITOR: 0
+    sensitive-path:
+      bonus: 15
+      markers:
+        - /admin
+        - /login
+    repeat-offender:
+      bonus: 15
+      threshold: 5
+      window: PT10M
+
 logging:
   level:
     com.security.wsa: INFO

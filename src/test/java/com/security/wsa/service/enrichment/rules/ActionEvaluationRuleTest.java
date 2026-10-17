@@ -1,5 +1,6 @@
 package com.security.wsa.service.enrichment.rules;
 
+import com.security.wsa.config.TestProperties;
 import com.security.wsa.model.RuleDto;
 import com.security.wsa.model.SecurityEventDto;
 import com.security.wsa.model.enums.Action;
@@ -14,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ActionEvaluationRuleTest {
 
-    private final ActionEvaluationRule rule = new ActionEvaluationRule();
+    private final ActionEvaluationRule rule = new ActionEvaluationRule(TestProperties.pdfDefaults());
 
     @ParameterizedTest
     @CsvSource({
