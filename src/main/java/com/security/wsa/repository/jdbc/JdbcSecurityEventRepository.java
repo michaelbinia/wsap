@@ -21,6 +21,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Repository
@@ -124,6 +125,14 @@ public class JdbcSecurityEventRepository implements SecurityEventRepository {
                 e.userAgent(), e.rule(), e.action(), e.geoLocation(),
                 e.requestSize(), e.responseSize(),
                 e.attackType(), e.threatScore(), e.receivedAt());
+    }
+
+    @Override
+    public Optional<SecurityEvent> findByEventId(String eventId) {
+        return jdbc.sql("SELECT * FROM security_events WHERE event_id = :eventId")
+                .param("eventId", eventId)
+                .query(ROW)
+                .optional();
     }
 
     @Override
