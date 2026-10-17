@@ -142,7 +142,8 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(post("/v1/events/ingest").contentType("application/json").content("[]"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value("At least one event required"));
+                .andExpect(jsonPath("$.error").value("Validation failed"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("10000")));
     }
 
     @Test

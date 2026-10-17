@@ -5,8 +5,10 @@ import com.security.wsa.model.SecurityEventDto;
 import com.security.wsa.service.IngestionService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,7 +20,10 @@ import java.util.Set;
 
 @RestController
 @RequestMapping("/v1/events")
+@Validated
 public class IngestionController {
+
+    private static final int MAX_BATCH_SIZE = 10_000;
 
     private final IngestionService ingestionService;
     private final Validator validator;
@@ -29,10 +34,11 @@ public class IngestionController {
     }
 
     @PostMapping("/ingest")
-    public ResponseEntity<List<IngestResult>> ingest(@RequestBody List<SecurityEventDto> events) {
-        if (events == null || events.isEmpty()) {
-            throw new IllegalArgumentException("At least one event required");
-        }
+    public ResponseEntity<List<IngestResult>> ingest(
+            @RequestBody
+            @Size(min = 1, max = MAX_BATCH_SIZE,
+                    message = "Batch must contain between 1 and " + MAX_BATCH_SIZE + " events")
+            List<SecurityEventDto> events) {
 
         List<FieldErrorDetail> errors = new ArrayList<>();
         for (int i = 0; i < events.size(); i++) {
