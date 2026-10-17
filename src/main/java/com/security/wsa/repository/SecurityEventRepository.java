@@ -24,4 +24,8 @@ public interface SecurityEventRepository {
     List<AttackerStats> topAttackers(StatsFilter filter, int limit);
 
     List<PathStats> topTargetedPaths(StatsFilter filter, int limit);
+
+    List<SecurityEvent> findSamples(SamplesFilter filter);
+
+    long countSamples(SamplesFilter filter);
 }
