@@ -14,7 +14,7 @@ public interface SecurityEventRepository {
 
     SecurityEvent save(SecurityEvent event);
 
-    long countByClientIpSince(String clientIp, Instant threshold);
+    long countByClientIpInWindow(String clientIp, Instant from, Instant to, String excludeEventId);
 
     long count(StatsFilter filter);
 

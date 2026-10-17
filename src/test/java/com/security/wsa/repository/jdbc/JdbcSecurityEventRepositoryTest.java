@@ -18,6 +18,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -59,7 +60,63 @@ class JdbcSecurityEventRepositoryTest {
         repo.save(event("1.1.1.1", base));                     // inside
         repo.save(event("2.2.2.2", base.minusSeconds(60)));   // wrong IP
 
-        assertThat(repo.countByClientIpSince("1.1.1.1", threshold)).isEqualTo(3L);
+        assertThat(repo.countByClientIpInWindow("1.1.1.1", threshold, Instant.parse("2999-01-01T00:00:00Z"), "no-such-event"))
+                .isEqualTo(3L);
+    }
+
+    @Test
+    void repeatOffenderCountReadsReceivedAtNotTimestampSoBackdatedEventsCannotEscape() {
+        Instant now = Instant.now();
+        Instant backdated = now.minus(Duration.ofHours(1));
+
+        for (int i = 0; i < 5; i++) {
+            repo.save(eventWithReceivedAt(
+                    "evt-prior-" + i, "1.1.1.1",
+                    backdated,
+                    now.minus(Duration.ofSeconds(60L * i))));
+        }
+
+        long count = repo.countByClientIpInWindow(
+                "1.1.1.1",
+                now.minus(Duration.ofMinutes(10)),
+                now.plus(Duration.ofSeconds(1)),
+                "evt-current");
+
+        assertThat(count).isEqualTo(5L);
+    }
+
+    @Test
+    void burstCountExcludesEventsReceivedAfterCurrentSoOutOfOrderIngestionIsStable() {
+        Instant now = Instant.now();
+
+        repo.save(eventWithReceivedAt("evt-earlier", "1.1.1.1",
+                now.minus(Duration.ofMinutes(1)),
+                now.minus(Duration.ofMinutes(1))));
+        repo.save(eventWithReceivedAt("evt-later-but-earlier-timestamp", "1.1.1.1",
+                now.minus(Duration.ofMinutes(2)),
+                now.plus(Duration.ofSeconds(1))));
+
+        long count = repo.countByClientIpInWindow(
+                "1.1.1.1",
+                now.minus(Duration.ofMinutes(10)),
+                now,
+                "evt-scored");
+
+        assertThat(count).isEqualTo(1L);
+    }
+
+    @Test
+    void burstCountExcludesTheCurrentEvent() {
+        Instant now = Instant.now();
+        repo.save(eventWithReceivedAt("evt-self", "1.1.1.1", now, now));
+
+        long count = repo.countByClientIpInWindow(
+                "1.1.1.1",
+                now.minus(Duration.ofMinutes(10)),
+                now.plus(Duration.ofSeconds(1)),
+                "evt-self");
+
+        assertThat(count).isZero();
     }
 
     @Test
@@ -74,9 +131,14 @@ class JdbcSecurityEventRepositoryTest {
     }
 
     private static SecurityEvent event(String clientIp, Instant timestamp) {
+        return eventWithReceivedAt("evt-" + UUID.randomUUID(), clientIp, timestamp, timestamp);
+    }
+
+    private static SecurityEvent eventWithReceivedAt(
+            String eventId, String clientIp, Instant timestamp, Instant receivedAt) {
         return new SecurityEvent(
                 null,
-                "evt-" + UUID.randomUUID(),
+                eventId,
                 timestamp,
                 14227,
                 "pol_web1",
@@ -94,6 +156,6 @@ class JdbcSecurityEventRepositoryTest {
                 256L,
                 "SQL/Command Injection",
                 85,
-                timestamp);
+                receivedAt);
     }
 }

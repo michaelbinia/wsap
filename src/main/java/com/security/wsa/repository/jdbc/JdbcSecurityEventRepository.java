@@ -127,14 +127,18 @@ public class JdbcSecurityEventRepository implements SecurityEventRepository {
     }
 
     @Override
-    public long countByClientIpSince(String clientIp, Instant threshold) {
+    public long countByClientIpInWindow(String clientIp, Instant from, Instant to, String excludeEventId) {
         return jdbc.sql("""
                         SELECT COUNT(*) FROM security_events
-                         WHERE client_ip = :clientIp::inet
-                           AND timestamp > :threshold
+                         WHERE client_ip   = :clientIp::inet
+                           AND received_at >  :fromTs
+                           AND received_at <  :toTs
+                           AND event_id    <> :excludeEventId
                         """)
                 .param("clientIp", clientIp)
-                .param("threshold", Timestamp.from(threshold))
+                .param("fromTs", Timestamp.from(from))
+                .param("toTs", Timestamp.from(to))
+                .param("excludeEventId", excludeEventId)
                 .query(Long.class).single();
     }
 

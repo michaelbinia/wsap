@@ -81,6 +81,13 @@ Guidelines for AI coding assistants working on this repository.
   100. *These are the defaults bound by `MiniWsaProperties` from
   `application.yml` under `mini-wsa.*`; changing a default is a semantic
   change to the system and requires discussion.*
+- **Repeat-offender count.** Measured on `received_at` (the
+  server-stamped wall-clock instant), **not** on the client-supplied
+  `timestamp` — the latter is trivially forgeable. The window has both
+  bounds (`now - 10m, now`) and excludes the event currently being
+  scored. Client-supplied `timestamp` values are still used for
+  user-facing time ranges in the samples and stats endpoints, but
+  never for scoring.
 - **`attackType` is derived from `rule.category`,** never from
   `threatScore`.
 - **Writes are idempotent on `event_id`.** The schema has

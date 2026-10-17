@@ -36,8 +36,9 @@ public class IngestionService {
     }
 
     public SecurityEvent ingestOne(SecurityEventDto dto) {
-        Instant threshold = dto.timestamp().minus(repeatOffenderWindow);
-        long recent = repository.countByClientIpSince(dto.clientIp(), threshold);
+        Instant now = Instant.now();
+        Instant from = now.minus(repeatOffenderWindow);
+        long recent = repository.countByClientIpInWindow(dto.clientIp(), from, now, dto.eventId());
         int threatScore = threatScoreCalculator.calculateScore(dto, recent);
         String attackType = attackClassifier.classify(dto.rule().category());
 
@@ -60,7 +61,7 @@ public class IngestionService {
                 dto.responseSize(),
                 attackType,
                 threatScore,
-                Instant.now());
+                now);
 
         return repository.save(event);
     }
