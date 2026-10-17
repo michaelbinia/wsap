@@ -6,6 +6,7 @@ import com.security.wsa.model.GeoLocation;
 import com.security.wsa.model.PathStats;
 import com.security.wsa.model.Rule;
 import com.security.wsa.model.SecurityEvent;
+import com.security.wsa.model.TimeSeriesBucket;
 import com.security.wsa.model.enums.Action;
 import com.security.wsa.model.enums.AttackCategory;
 import com.security.wsa.model.enums.Severity;
@@ -222,6 +223,24 @@ public class JdbcSecurityEventRepository implements SecurityEventRepository {
     public long countSamples(SamplesFilter filter) {
         return bindSamplesFilter(jdbc.sql("SELECT COUNT(*) FROM security_events" + SAMPLES_WHERE), filter)
                 .query(Long.class).single();
+    }
+
+    @Override
+    public List<TimeSeriesBucket> timeseries(StatsFilter filter, String interval) {
+        String bucketExpr = switch (interval) {
+            case "1m" -> "date_trunc('minute', timestamp)";
+            case "1h" -> "date_trunc('hour', timestamp)";
+            case "5m" -> "to_timestamp(FLOOR(EXTRACT(EPOCH FROM timestamp) / 300) * 300)";
+            default -> throw new IllegalArgumentException("interval must be one of: 1m, 5m, 1h");
+        };
+        String sql = "SELECT " + bucketExpr + " AS bucket, COUNT(*) AS count "
+                + "FROM security_events" + FILTER_CLAUSE
+                + " GROUP BY bucket ORDER BY bucket";
+        return bindFilter(jdbc.sql(sql), filter)
+                .query((rs, rowNum) -> new TimeSeriesBucket(
+                        rs.getTimestamp("bucket").toInstant(),
+                        rs.getLong("count")))
+                .list();
     }
 
     private static JdbcClient.StatementSpec bindFilter(JdbcClient.StatementSpec spec, StatsFilter f) {

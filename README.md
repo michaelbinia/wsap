@@ -153,6 +153,27 @@ Filters: `configId`, `from`, `to`, `category`, `action`. Sorted by
 `timestamp` desc, newest first. `limit` 1–100 (default 20), `offset`
 ≥ 0 (default 0). Response includes `total` for pagination.
 
+### GET `/v1/stats/timeseries` *(bonus)*
+
+```bash
+curl -s "localhost:8080/v1/stats/timeseries?interval=5m&from=2026-05-20T14:00:00Z&to=2026-05-20T15:00:00Z" | jq
+```
+
+Returns event counts bucketed by `interval` for a line chart.
+`interval` is required and must be one of `1m`, `5m`, `1h`.
+`configId`, `from`, `to` are optional. `1m` and `1h` use Postgres
+`date_trunc`; `5m` floors to a 5-minute mark via
+`to_timestamp(FLOOR(EXTRACT(EPOCH FROM timestamp) / 300) * 300)`.
+Empty buckets are skipped (not filled with zeros).
+
+**Bonus choice.** The PDF offers three bonuses — alerting
+(define/evaluate), time-series dashboard data, and rate limiting. I
+picked time-series because it is a natural SQL extension of the Phase 7
+stats endpoint, reuses the same `StatsFilter`, and demonstrates one of
+the specific reasons for choosing Postgres over Elasticsearch in the
+storage justification above. Rate limiting is called out in "What I'd
+improve" because at Akamai scale it belongs at the edge, not the API.
+
 ## Data generator
 
 Standalone Python 3 script at `scripts/generate.py` — tooling, not
@@ -171,14 +192,40 @@ See `python3 scripts/generate.py --help` for every flag.
 
 ## What I'd improve with more time
 
-- Migrate the hot read path to Elasticsearch for native
+- **Kafka in front of ingest.** The real Akamai WSA buffers DLRs
+  through a queue. Today `/v1/events/ingest` holds the client until
+  the write + score + classify loop finishes. At real throughput
+  (millions of events / sec) I would turn ingest into an async flow:
+  the controller validates and publishes to Kafka, returns **202
+  Accepted** immediately, and a consumer group enriches and persists.
+  This also gives us natural backpressure, horizontal scaling of the
+  enrichment workers, and replayability.
+- **Redis cache for stats.** `GET /v1/stats/summary` runs five
+  aggregations per request. For a SOC dashboard polling the same
+  `(configId, from, to)` tuple every few seconds, a short-TTL
+  (30s–5m, tuned to freshness tolerance) read-through cache keyed on
+  the filter triple would collapse most of that load without touching
+  the write path. Samples endpoint is harder to cache cleanly because
+  of pagination, so I'd scope caching to stats first.
+- **Rate limiting on the public API.** The PDF offers rate limiting as
+  one of three bonuses; I argued in the "Bonus choice" subsection above
+  that at Akamai scale it belongs at the edge (the real WSA sits behind
+  Akamai itself), not in-application. If I were adding it in-app anyway
+  I'd use Bucket4j with a per-client-IP token bucket on `/v1/stats` and
+  `/v1/events/samples`, returning **429 Too Many Requests**. Mock the
+  clock in tests to keep them deterministic.
+- **Migrate the hot read path to Elasticsearch** for native
   `date_histogram` and ergonomic full-text search over user agents.
-- Backpressure / rate control between the generator and the ingest API.
-- Dead-letter queue for ingest failures.
-- Expose Prometheus-formatted metrics via `/actuator/prometheus` and
-  wire them to Micrometer; add per-endpoint `@Operation` on the
+  Keep Postgres as the system of record.
+- **Backpressure / rate control** between the generator and the ingest
+  API — becomes less critical once Kafka is in place, but still needed
+  for client-side protection against runaway producers.
+- **Dead-letter queue** for ingest failures, so poisoned batches don't
+  silently drop. Naturally falls out of the Kafka design above.
+- **Expose Prometheus-formatted metrics** via `/actuator/prometheus`
+  and wire them to Micrometer; add per-endpoint `@Operation` on the
   OpenAPI spec for richer Swagger descriptions.
-- Authentication (none today).
+- **Authentication** (none today).
 
 ## Challenges hit and how I solved them
 
