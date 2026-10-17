@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: mini-wsa
+  datasource:
+    url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5432/mini_wsa}
+    username: ${DATASOURCE_USER:mini_wsa}
+    password: ${DATASOURCE_PASSWORD:mini_wsa}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    deserialization:
+      accept-single-value-as-array: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    com.security.wsa: INFO
