@@ -21,6 +21,12 @@ jobs:
       - name: Build and test
         run: ./mvnw -B --no-transfer-progress verify
 
+      - name: Lint generator script
+        run: python3 -m py_compile scripts/generate.py
+
+      - name: Test generator script
+        run: python3 scripts/test_generate.py
+
       - name: Upload surefire reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
