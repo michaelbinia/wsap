@@ -207,6 +207,13 @@ See `python3 scripts/generate.py --help` for every flag.
   the filter triple would collapse most of that load without touching
   the write path. Samples endpoint is harder to cache cleanly because
   of pagination, so I'd scope caching to stats first.
+- **Rate limiting on the public API.** The PDF offers rate limiting as
+  one of three bonuses; I argued in the "Bonus choice" subsection above
+  that at Akamai scale it belongs at the edge (the real WSA sits behind
+  Akamai itself), not in-application. If I were adding it in-app anyway
+  I'd use Bucket4j with a per-client-IP token bucket on `/v1/stats` and
+  `/v1/events/samples`, returning **429 Too Many Requests**. Mock the
+  clock in tests to keep them deterministic.
 - **Migrate the hot read path to Elasticsearch** for native
   `date_histogram` and ergonomic full-text search over user agents.
   Keep Postgres as the system of record.
