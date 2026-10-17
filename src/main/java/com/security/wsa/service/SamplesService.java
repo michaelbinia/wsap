@@ -23,6 +23,7 @@ public class SamplesService {
     public SamplesResponse search(Integer configId, Instant from, Instant to,
                                   AttackCategory category, Action action,
                                   int limit, int offset) {
+        TimeRanges.requireFromBeforeTo(from, to);
         SamplesFilter filter = new SamplesFilter(configId, from, to, category, action, limit, offset);
         long total = repository.countSamples(filter);
         List<SecurityEvent> events = repository.findSamples(filter);

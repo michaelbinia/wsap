@@ -25,6 +25,7 @@ public class TimeSeriesService {
         if (!VALID_INTERVALS.contains(interval)) {
             throw new IllegalArgumentException("interval must be one of: 1m, 5m, 1h");
         }
+        TimeRanges.requireFromBeforeTo(from, to);
         StatsFilter filter = new StatsFilter(configId, from, to);
         List<TimeSeriesBucket> buckets = repository.timeseries(filter, interval);
         return new TimeSeriesResponse(configId, interval, buckets);

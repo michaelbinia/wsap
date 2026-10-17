@@ -26,6 +26,7 @@ public class StatsService {
     }
 
     public StatsSummaryResponse summary(Integer configId, Instant from, Instant to) {
+        TimeRanges.requireFromBeforeTo(from, to);
         StatsFilter filter = new StatsFilter(configId, from, to);
 
         long total = repository.count(filter);
