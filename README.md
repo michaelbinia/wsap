@@ -153,6 +153,27 @@ Filters: `configId`, `from`, `to`, `category`, `action`. Sorted by
 `timestamp` desc, newest first. `limit` 1–100 (default 20), `offset`
 ≥ 0 (default 0). Response includes `total` for pagination.
 
+### GET `/v1/stats/timeseries` *(bonus)*
+
+```bash
+curl -s "localhost:8080/v1/stats/timeseries?interval=5m&from=2026-05-20T14:00:00Z&to=2026-05-20T15:00:00Z" | jq
+```
+
+Returns event counts bucketed by `interval` for a line chart.
+`interval` is required and must be one of `1m`, `5m`, `1h`.
+`configId`, `from`, `to` are optional. `1m` and `1h` use Postgres
+`date_trunc`; `5m` floors to a 5-minute mark via
+`to_timestamp(FLOOR(EXTRACT(EPOCH FROM timestamp) / 300) * 300)`.
+Empty buckets are skipped (not filled with zeros).
+
+**Bonus choice.** The PDF offers three bonuses — alerting
+(define/evaluate), time-series dashboard data, and rate limiting. I
+picked time-series because it is a natural SQL extension of the Phase 7
+stats endpoint, reuses the same `StatsFilter`, and demonstrates one of
+the specific reasons for choosing Postgres over Elasticsearch in the
+storage justification above. Rate limiting is called out in "What I'd
+improve" because at Akamai scale it belongs at the edge, not the API.
+
 ## Data generator
 
 Standalone Python 3 script at `scripts/generate.py` — tooling, not

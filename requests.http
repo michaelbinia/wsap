@@ -75,5 +75,11 @@ GET http://localhost:8080/v1/events/samples?limit=20
 ### Samples — filtered by category and paginated
 GET http://localhost:8080/v1/events/samples?category=INJECTION&limit=10&offset=0
 
+### Timeseries — 5-minute buckets over a window (bonus endpoint)
+GET http://localhost:8080/v1/stats/timeseries?interval=5m&from=2026-05-20T14:00:00Z&to=2026-05-20T15:00:00Z
+
+### Timeseries — 1-hour buckets, unfiltered
+GET http://localhost:8080/v1/stats/timeseries?interval=1h
+
 ### Actuator health probe
 GET http://localhost:8080/actuator/health

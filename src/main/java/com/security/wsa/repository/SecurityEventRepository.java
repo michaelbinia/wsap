@@ -4,6 +4,7 @@ import com.security.wsa.model.AttackerStats;
 import com.security.wsa.model.CategoryStats;
 import com.security.wsa.model.PathStats;
 import com.security.wsa.model.SecurityEvent;
+import com.security.wsa.model.TimeSeriesBucket;
 
 import java.time.Instant;
 import java.util.List;
@@ -28,4 +29,6 @@ public interface SecurityEventRepository {
     List<SecurityEvent> findSamples(SamplesFilter filter);
 
     long countSamples(SamplesFilter filter);
+
+    List<TimeSeriesBucket> timeseries(StatsFilter filter, String interval);
 }
