@@ -13,6 +13,9 @@ Guidelines for AI coding assistants working on this repository.
   Apache 2.0 / MIT / EPL / BSD licensed
 ✓ SQL migration files — add new `V{n+1}__name.sql` only; never modify a
   committed migration
+✓ Tooling scripts under `scripts/` (Python 3.10+, stdlib only — the
+  data generator at `scripts/generate.py` is tooling, not product;
+  it never ships inside the Java jar)
 
 ## Do not
 
@@ -40,6 +43,12 @@ Guidelines for AI coding assistants working on this repository.
 ✗ Catch and swallow exceptions silently — log at WARN minimum,
   wrap-and-rethrow when the current layer is not the right handler
 ✗ Add license headers in source files — `pom.xml` carries the licence
+✗ Add a Java data-generator package or a Spring profile for data
+  generation — the generator is Python tooling in `scripts/`, not
+  product code in the jar
+✗ Pull in third-party Python dependencies for `scripts/` — stdlib only
+  (`urllib.request`, `json`, `random`, `argparse`, `datetime`, `uuid`),
+  so a fresh clone can run the script without `pip install`
 
 ## Coding conventions
 
@@ -130,13 +139,23 @@ Guidelines for AI coding assistants working on this repository.
 
 # Run all tests (unit + Testcontainers integration)
 ./mvnw verify
+
+# Generate and POST demo events to a running app (stdlib Python 3.10+)
+python3 scripts/generate.py \
+  --count 10000 --waves 10 --wave-size 50 \
+  --target http://localhost:8080/v1/events/ingest
+
+# Or write events as NDJSON (one JSON array per line) for later ingestion
+python3 scripts/generate.py --count 10000 --output events.ndjson
 ```
 
 ## Security
 
 - **No secrets in source or git history.** Use environment variables
   only. Default values in `application.yml` are for local development.
-- **No real PII in sample data or tests.**
+- **No real PII in sample data or tests.** The data generator and
+  integration tests use RFC 5737 documentation IP ranges
+  (`203.0.113.0/24`, `198.51.100.0/24`, `192.0.2.0/24`).
 - **No production credentials** anywhere — this is a demo system.
 - **SQL is parameterised.** Never build SQL by string concatenation of
   caller-supplied values; use `JdbcClient` named parameters

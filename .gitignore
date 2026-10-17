@@ -11,3 +11,4 @@ HELP.md
 
 *.log
 *.class
+__pycache__/
