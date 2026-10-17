@@ -3,6 +3,7 @@ package com.security.wsa.service;
 import com.security.wsa.config.MiniWsaProperties;
 import com.security.wsa.model.GeoLocation;
 import com.security.wsa.model.GeoLocationDto;
+import com.security.wsa.model.IngestResult;
 import com.security.wsa.model.Rule;
 import com.security.wsa.model.RuleDto;
 import com.security.wsa.model.SecurityEvent;
@@ -35,14 +36,14 @@ public class IngestionService {
         this.repeatOffenderWindow = properties.scoring().repeatOffender().window();
     }
 
-    public SecurityEvent ingestOne(SecurityEventDto dto) {
+    public IngestResult ingestOne(SecurityEventDto dto) {
         Instant now = Instant.now();
         Instant from = now.minus(repeatOffenderWindow);
         long recent = repository.countByClientIpInWindow(dto.clientIp(), from, now, dto.eventId());
         int threatScore = threatScoreCalculator.calculateScore(dto, recent);
         String attackType = attackClassifier.classify(dto.rule().category());
 
-        SecurityEvent event = new SecurityEvent(
+        SecurityEvent toSave = new SecurityEvent(
                 null,
                 dto.eventId(),
                 dto.timestamp(),
@@ -63,11 +64,19 @@ public class IngestionService {
                 threatScore,
                 now);
 
-        return repository.save(event);
+        SecurityEvent after = repository.save(toSave);
+        if (after.id() == null) {
+            SecurityEvent stored = repository.findByEventId(dto.eventId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "event_id=" + dto.eventId() + " conflicted but is not findable; "
+                                    + "likely a race or missing row — investigate"));
+            return new IngestResult(stored, IngestResult.Status.DUPLICATE);
+        }
+        return new IngestResult(after, IngestResult.Status.CREATED);
     }
 
-    public List<SecurityEvent> ingestBatch(List<SecurityEventDto> events) {
-        List<SecurityEvent> results = new ArrayList<>(events.size());
+    public List<IngestResult> ingestBatch(List<SecurityEventDto> events) {
+        List<IngestResult> results = new ArrayList<>(events.size());
         for (SecurityEventDto dto : events) {
             results.add(ingestOne(dto));
         }

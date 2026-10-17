@@ -3,6 +3,7 @@ package com.security.wsa;
 import com.security.wsa.controller.ErrorResponse;
 import com.security.wsa.controller.FieldErrorDetail;
 import com.security.wsa.model.GeoLocationDto;
+import com.security.wsa.model.IngestResult;
 import com.security.wsa.model.RuleDto;
 import com.security.wsa.model.SamplesResponse;
 import com.security.wsa.model.SecurityEvent;
@@ -73,11 +74,11 @@ class IngestAndQueryIntegrationTest {
             batch.add(botMonitor("evt-bot-" + i, base.plusSeconds(100 + i), "198.51.100." + (10 + i)));
         }
 
-        ResponseEntity<List<SecurityEvent>> ingestResponse = rest.exchange(
+        ResponseEntity<List<IngestResult>> ingestResponse = rest.exchange(
                 "/v1/events/ingest",
                 HttpMethod.POST,
                 new HttpEntity<>(batch),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(ingestResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(ingestResponse.getBody()).hasSize(20);
@@ -156,11 +157,11 @@ class IngestAndQueryIntegrationTest {
                 new GeoLocationDto("CN", "Beijing"),
                 1024L, 256L);
 
-        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+        ResponseEntity<List<IngestResult>> ingest = rest.exchange(
                 "/v1/events/ingest",
                 HttpMethod.POST,
                 new HttpEntity<>(List.of(event)),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
@@ -187,19 +188,25 @@ class IngestAndQueryIntegrationTest {
             batch.add(injectionDeny("evt-dup-" + i, base.plusSeconds(i), "203.0.113." + (10 + i)));
         }
 
-        ResponseEntity<List<SecurityEvent>> firstPost = rest.exchange(
+        ResponseEntity<List<IngestResult>> firstPost = rest.exchange(
                 "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(batch),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(firstPost.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(firstPost.getBody()).allSatisfy(e -> assertThat(e.id()).isNotNull());
+        assertThat(firstPost.getBody()).allSatisfy(r -> {
+            assertThat(r.status()).isEqualTo(IngestResult.Status.CREATED);
+            assertThat(r.event().id()).isNotNull();
+        });
 
-        ResponseEntity<List<SecurityEvent>> secondPost = rest.exchange(
+        ResponseEntity<List<IngestResult>> secondPost = rest.exchange(
                 "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(batch),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
-        assertThat(secondPost.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(secondPost.getBody()).allSatisfy(e -> assertThat(e.id()).isNull());
+        assertThat(secondPost.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(secondPost.getBody()).allSatisfy(r -> {
+            assertThat(r.status()).isEqualTo(IngestResult.Status.DUPLICATE);
+            assertThat(r.event().id()).isNotNull();
+        });
 
         ResponseEntity<StatsSummaryResponse> stats = rest.getForEntity(
                 "/v1/stats/summary", StatsSummaryResponse.class);
@@ -225,9 +232,9 @@ class IngestAndQueryIntegrationTest {
                     100L, 100L));
         }
 
-        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+        ResponseEntity<List<IngestResult>> ingest = rest.exchange(
                 "/v1/events/ingest", HttpMethod.POST, new HttpEntity<>(seven),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
@@ -259,15 +266,16 @@ class IngestAndQueryIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        ResponseEntity<List<SecurityEvent>> ingest = rest.exchange(
+        ResponseEntity<List<IngestResult>> ingest = rest.exchange(
                 "/v1/events/ingest",
                 HttpMethod.POST,
                 new HttpEntity<>(single, headers),
-                new ParameterizedTypeReference<List<SecurityEvent>>() {
+                new ParameterizedTypeReference<List<IngestResult>>() {
                 });
         assertThat(ingest.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(ingest.getBody()).hasSize(1);
-        assertThat(ingest.getBody().get(0).eventId()).isEqualTo("evt-single");
+        assertThat(ingest.getBody().get(0).status()).isEqualTo(IngestResult.Status.CREATED);
+        assertThat(ingest.getBody().get(0).event().eventId()).isEqualTo("evt-single");
 
         ResponseEntity<SamplesResponse> samples = rest.getForEntity(
                 "/v1/events/samples?limit=5", SamplesResponse.class);
