@@ -2,10 +2,17 @@ package com.security.wsa.repository.jdbc;
 
 import com.security.wsa.model.AttackerStats;
 import com.security.wsa.model.CategoryStats;
+import com.security.wsa.model.GeoLocation;
 import com.security.wsa.model.PathStats;
+import com.security.wsa.model.Rule;
 import com.security.wsa.model.SecurityEvent;
+import com.security.wsa.model.enums.Action;
+import com.security.wsa.model.enums.AttackCategory;
+import com.security.wsa.model.enums.Severity;
+import com.security.wsa.repository.SamplesFilter;
 import com.security.wsa.repository.SecurityEventRepository;
 import com.security.wsa.repository.StatsFilter;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -23,6 +30,42 @@ public class JdbcSecurityEventRepository implements SecurityEventRepository {
                AND (CAST(:fromTs   AS timestamptz) IS NULL OR timestamp >= :fromTs)
                AND (CAST(:toTs     AS timestamptz) IS NULL OR timestamp <= :toTs)
             """;
+
+    private static final String SAMPLES_WHERE = """
+             WHERE (CAST(:configId AS integer)      IS NULL OR config_id     = :configId)
+               AND (CAST(:fromTs   AS timestamptz)  IS NULL OR timestamp    >= :fromTs)
+               AND (CAST(:toTs     AS timestamptz)  IS NULL OR timestamp    <= :toTs)
+               AND (CAST(:category AS text)         IS NULL OR rule_category = :category)
+               AND (CAST(:action   AS text)         IS NULL OR action        = :action)
+            """;
+
+    private static final RowMapper<SecurityEvent> ROW = (rs, rowNum) -> new SecurityEvent(
+            rs.getLong("id"),
+            rs.getString("event_id"),
+            rs.getTimestamp("timestamp").toInstant(),
+            rs.getInt("config_id"),
+            rs.getString("policy_id"),
+            rs.getString("client_ip"),
+            rs.getString("hostname"),
+            rs.getString("path"),
+            rs.getString("method"),
+            rs.getInt("status_code"),
+            rs.getString("user_agent"),
+            new Rule(
+                    rs.getString("rule_id"),
+                    rs.getString("rule_name"),
+                    rs.getString("rule_message"),
+                    Severity.valueOf(rs.getString("rule_severity")),
+                    AttackCategory.valueOf(rs.getString("rule_category"))),
+            Action.valueOf(rs.getString("action")),
+            rs.getString("geo_country") != null
+                    ? new GeoLocation(rs.getString("geo_country"), rs.getString("geo_city"))
+                    : null,
+            (Long) rs.getObject("request_size"),
+            (Long) rs.getObject("response_size"),
+            rs.getString("attack_type"),
+            rs.getInt("threat_score"),
+            rs.getTimestamp("received_at").toInstant());
 
     private final JdbcClient jdbc;
 
@@ -163,10 +206,37 @@ public class JdbcSecurityEventRepository implements SecurityEventRepository {
                 .list();
     }
 
+    @Override
+    public List<SecurityEvent> findSamples(SamplesFilter filter) {
+        return bindSamplesFilter(jdbc.sql("SELECT * FROM security_events" + SAMPLES_WHERE + """
+                         ORDER BY timestamp DESC
+                         LIMIT :limit OFFSET :offset
+                        """), filter)
+                .param("limit", filter.limit())
+                .param("offset", filter.offset())
+                .query(ROW)
+                .list();
+    }
+
+    @Override
+    public long countSamples(SamplesFilter filter) {
+        return bindSamplesFilter(jdbc.sql("SELECT COUNT(*) FROM security_events" + SAMPLES_WHERE), filter)
+                .query(Long.class).single();
+    }
+
     private static JdbcClient.StatementSpec bindFilter(JdbcClient.StatementSpec spec, StatsFilter f) {
         return spec
                 .param("configId", f.configId())
                 .param("fromTs", f.from() != null ? Timestamp.from(f.from()) : null)
                 .param("toTs", f.to() != null ? Timestamp.from(f.to()) : null);
+    }
+
+    private static JdbcClient.StatementSpec bindSamplesFilter(JdbcClient.StatementSpec spec, SamplesFilter f) {
+        return spec
+                .param("configId", f.configId())
+                .param("fromTs", f.from() != null ? Timestamp.from(f.from()) : null)
+                .param("toTs", f.to() != null ? Timestamp.from(f.to()) : null)
+                .param("category", f.category() != null ? f.category().name() : null)
+                .param("action", f.action() != null ? f.action().name() : null);
     }
 }
