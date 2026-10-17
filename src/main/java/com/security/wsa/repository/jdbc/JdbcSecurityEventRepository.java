@@ -1,15 +1,28 @@
 package com.security.wsa.repository.jdbc;
 
+import com.security.wsa.model.AttackerStats;
+import com.security.wsa.model.CategoryStats;
+import com.security.wsa.model.PathStats;
 import com.security.wsa.model.SecurityEvent;
 import com.security.wsa.repository.SecurityEventRepository;
+import com.security.wsa.repository.StatsFilter;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Repository
 public class JdbcSecurityEventRepository implements SecurityEventRepository {
+
+    private static final String FILTER_CLAUSE = """
+             WHERE (CAST(:configId AS integer)      IS NULL OR config_id = :configId)
+               AND (CAST(:fromTs   AS timestamptz) IS NULL OR timestamp >= :fromTs)
+               AND (CAST(:toTs     AS timestamptz) IS NULL OR timestamp <= :toTs)
+            """;
 
     private final JdbcClient jdbc;
 
@@ -79,5 +92,81 @@ public class JdbcSecurityEventRepository implements SecurityEventRepository {
                 .param("clientIp", clientIp)
                 .param("threshold", Timestamp.from(threshold))
                 .query(Long.class).single();
+    }
+
+    @Override
+    public long count(StatsFilter filter) {
+        return bindFilter(jdbc.sql("SELECT COUNT(*) FROM security_events" + FILTER_CLAUSE), filter)
+                .query(Long.class).single();
+    }
+
+    @Override
+    public Map<String, CategoryStats> byCategory(StatsFilter filter) {
+        return bindFilter(jdbc.sql("""
+                        SELECT rule_category                      AS category,
+                               COUNT(*)                           AS count,
+                               AVG(threat_score)::numeric(5,1)    AS avg_threat_score
+                          FROM security_events""" + FILTER_CLAUSE + """
+                         GROUP BY rule_category
+                        """), filter)
+                .query((rs, rowNum) -> Map.entry(
+                        rs.getString("category"),
+                        new CategoryStats(rs.getLong("count"), rs.getDouble("avg_threat_score"))))
+                .list()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    @Override
+    public Map<String, Long> byAction(StatsFilter filter) {
+        return bindFilter(jdbc.sql("""
+                        SELECT action, COUNT(*) AS count
+                          FROM security_events""" + FILTER_CLAUSE + """
+                         GROUP BY action
+                        """), filter)
+                .query((rs, rowNum) -> Map.entry(rs.getString("action"), rs.getLong("count")))
+                .list()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    @Override
+    public List<AttackerStats> topAttackers(StatsFilter filter, int limit) {
+        return bindFilter(jdbc.sql("""
+                        SELECT HOST(client_ip)                    AS client_ip,
+                               COUNT(*)                           AS count,
+                               AVG(threat_score)::numeric(5,1)    AS avg_threat_score
+                          FROM security_events""" + FILTER_CLAUSE + """
+                         GROUP BY client_ip
+                         ORDER BY count DESC
+                         LIMIT :limit
+                        """), filter)
+                .param("limit", limit)
+                .query((rs, rowNum) -> new AttackerStats(
+                        rs.getString("client_ip"),
+                        rs.getLong("count"),
+                        rs.getDouble("avg_threat_score")))
+                .list();
+    }
+
+    @Override
+    public List<PathStats> topTargetedPaths(StatsFilter filter, int limit) {
+        return bindFilter(jdbc.sql("""
+                        SELECT path, COUNT(*) AS count
+                          FROM security_events""" + FILTER_CLAUSE + """
+                         GROUP BY path
+                         ORDER BY count DESC
+                         LIMIT :limit
+                        """), filter)
+                .param("limit", limit)
+                .query((rs, rowNum) -> new PathStats(rs.getString("path"), rs.getLong("count")))
+                .list();
+    }
+
+    private static JdbcClient.StatementSpec bindFilter(JdbcClient.StatementSpec spec, StatsFilter f) {
+        return spec
+                .param("configId", f.configId())
+                .param("fromTs", f.from() != null ? Timestamp.from(f.from()) : null)
+                .param("toTs", f.to() != null ? Timestamp.from(f.to()) : null);
     }
 }
