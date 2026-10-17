@@ -373,6 +373,55 @@ class IngestAndQueryIntegrationTest {
                 .containsExactly(IngestResult.Status.DUPLICATE, IngestResult.Status.CREATED);
     }
 
+    @Test
+    void batchOf10001EventsReturns400WithSizeError() {
+        List<SecurityEventDto> huge = new ArrayList<>(10_001);
+        for (int i = 0; i < 10_001; i++) {
+            huge.add(injectionDeny("evt-huge-" + i,
+                    Instant.parse("2026-05-20T14:00:00Z"),
+                    "203.0.113." + ((i % 250) + 1)));
+        }
+
+        ResponseEntity<ErrorResponse> res = rest.exchange(
+                "/v1/events/ingest",
+                HttpMethod.POST,
+                new HttpEntity<>(huge),
+                ErrorResponse.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(res.getBody()).isNotNull();
+        assertThat(res.getBody().message()).contains("10000");
+    }
+
+    @Test
+    void reversedTimeRangeOnStatsReturns400() {
+        ResponseEntity<ErrorResponse> res = rest.getForEntity(
+                "/v1/stats/summary?from=2026-10-20T00:00:00Z&to=2026-10-18T00:00:00Z",
+                ErrorResponse.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(res.getBody()).isNotNull();
+        assertThat(res.getBody().message()).contains("must be <=");
+    }
+
+    @Test
+    void reversedTimeRangeOnSamplesReturns400() {
+        ResponseEntity<ErrorResponse> res = rest.getForEntity(
+                "/v1/events/samples?from=2026-10-20T00:00:00Z&to=2026-10-18T00:00:00Z",
+                ErrorResponse.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void reversedTimeRangeOnTimeseriesReturns400() {
+        ResponseEntity<ErrorResponse> res = rest.getForEntity(
+                "/v1/stats/timeseries?interval=1m&from=2026-10-20T00:00:00Z&to=2026-10-18T00:00:00Z",
+                ErrorResponse.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
     private static SecurityEventDto injectionDeny(String eventId, Instant timestamp, String clientIp) {
         return new SecurityEventDto(
                 eventId, timestamp, 14227, "pol_web1",
