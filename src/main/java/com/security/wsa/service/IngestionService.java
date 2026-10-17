@@ -1,5 +1,6 @@
 package com.security.wsa.service;
 
+import com.security.wsa.config.MiniWsaProperties;
 import com.security.wsa.model.GeoLocation;
 import com.security.wsa.model.GeoLocationDto;
 import com.security.wsa.model.Rule;
@@ -19,22 +20,23 @@ import java.util.List;
 @Service
 public class IngestionService {
 
-    private static final Duration REPEAT_OFFENDER_WINDOW = Duration.ofMinutes(10);
-
     private final SecurityEventRepository repository;
     private final ThreatScoreCalculator threatScoreCalculator;
     private final AttackClassifier attackClassifier;
+    private final Duration repeatOffenderWindow;
 
     public IngestionService(SecurityEventRepository repository,
                             ThreatScoreCalculator threatScoreCalculator,
-                            AttackClassifier attackClassifier) {
+                            AttackClassifier attackClassifier,
+                            MiniWsaProperties properties) {
         this.repository = repository;
         this.threatScoreCalculator = threatScoreCalculator;
         this.attackClassifier = attackClassifier;
+        this.repeatOffenderWindow = properties.scoring().repeatOffender().window();
     }
 
     public SecurityEvent ingestOne(SecurityEventDto dto) {
-        Instant threshold = dto.timestamp().minus(REPEAT_OFFENDER_WINDOW);
+        Instant threshold = dto.timestamp().minus(repeatOffenderWindow);
         long recent = repository.countByClientIpSince(dto.clientIp(), threshold);
         int threatScore = threatScoreCalculator.calculateScore(dto, recent);
         String attackType = attackClassifier.classify(dto.rule().category());

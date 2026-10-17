@@ -78,7 +78,9 @@ Guidelines for AI coding assistants working on this repository.
   LOW=10. Action DENY=20, ALERT=10, MONITOR=0. Path contains `/admin` or
   `/login` → +15. More than 5 events from this `clientIp` in last 10
   minutes → +15 (strict `>` 5, excludes the event being scored). Cap at
-  100.
+  100. *These are the defaults bound by `MiniWsaProperties` from
+  `application.yml` under `mini-wsa.*`; changing a default is a semantic
+  change to the system and requires discussion.*
 - **`attackType` is derived from `rule.category`,** never from
   `threatScore`.
 - **Writes are idempotent on `event_id`.** The schema has

@@ -1,5 +1,6 @@
 package com.security.wsa.service;
 
+import com.security.wsa.config.MiniWsaProperties;
 import com.security.wsa.model.AttackerStats;
 import com.security.wsa.model.CategoryStats;
 import com.security.wsa.model.PathStats;
@@ -16,12 +17,12 @@ import java.util.Map;
 @Service
 public class StatsService {
 
-    private static final int TOP_N = 10;
-
     private final SecurityEventRepository repository;
+    private final int topN;
 
-    public StatsService(SecurityEventRepository repository) {
+    public StatsService(SecurityEventRepository repository, MiniWsaProperties properties) {
         this.repository = repository;
+        this.topN = properties.stats().topN();
     }
 
     public StatsSummaryResponse summary(Integer configId, Instant from, Instant to) {
@@ -30,8 +31,8 @@ public class StatsService {
         long total = repository.count(filter);
         Map<String, CategoryStats> byCategory = repository.byCategory(filter);
         Map<String, Long> byAction = repository.byAction(filter);
-        List<AttackerStats> topAttackers = repository.topAttackers(filter, TOP_N);
-        List<PathStats> topTargetedPaths = repository.topTargetedPaths(filter, TOP_N);
+        List<AttackerStats> topAttackers = repository.topAttackers(filter, topN);
+        List<PathStats> topTargetedPaths = repository.topTargetedPaths(filter, topN);
 
         return new StatsSummaryResponse(
                 configId,

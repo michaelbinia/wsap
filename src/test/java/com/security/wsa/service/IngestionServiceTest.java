@@ -46,7 +46,8 @@ class IngestionServiceTest {
         repository = mock(SecurityEventRepository.class);
         threatScoreCalculator = mock(ThreatScoreCalculator.class);
         attackClassifier = mock(AttackClassifier.class);
-        service = new IngestionService(repository, threatScoreCalculator, attackClassifier);
+        service = new IngestionService(repository, threatScoreCalculator, attackClassifier,
+                TestProperties.pdfDefaults());
 
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -128,7 +129,7 @@ class IngestionServiceTest {
                 new SensitivePathEvaluationRule(props),
                 new RepeatOffenderEvaluationRule(props)), props);
         AttackClassifier realClassifier = new AttackClassifier();
-        IngestionService realStackService = new IngestionService(realStackRepo, realCalculator, realClassifier);
+        IngestionService realStackService = new IngestionService(realStackRepo, realCalculator, realClassifier, props);
 
         SecurityEventDto input = dto("evt-real", "203.0.113.42",
                 Instant.parse("2026-05-20T14:32:10Z"),
