@@ -2,6 +2,30 @@
 
 Guidelines for AI coding assistants working on this repository.
 
+## Orientation (for reviewers and new contributors)
+
+- **What it is:** the "Mini WSA" take-home: ingest security events, score
+  and classify them, store them in Postgres, expose stats, samples and a
+  time-series endpoint. The assignment PDF is the spec.
+- **Where things live:**
+  `controller/` (REST + `GlobalExceptionHandler`) →
+  `service/` (`IngestionService`, `StatsService`, `SamplesService`,
+  `TimeSeriesService`) → `service/enrichment/` (`ThreatScoreCalculator`,
+  one class per rule in `rules/`, `AttackClassifier`) →
+  `repository/` port → `repository/jdbc/` (all SQL) →
+  `src/main/resources/db/migration/` (Flyway). Config:
+  `config/MiniWsaProperties`.
+- **Verify:** `./mvnw verify` runs unit and Testcontainers integration
+  tests (needs Docker). The `run-demo` skill
+  (`.claude/skills/run-demo/`) exercises the live stack with curl.
+- **Design decisions and trade-offs:** README sections "Storage choice",
+  "Challenges hit" and "Known limitations". Known limitations are
+  deliberate deferrals, not oversights.
+- **Spec → code:** ingest = `IngestionController`; scoring =
+  `service/enrichment/rules/*`; stats = `StatsController#summary`;
+  samples = `SamplesController`; bonus time-series =
+  `StatsController#timeseries`; data generator = `scripts/generate.py`.
+
 ## Scope of allowed changes
 
 ✓ Java source, tests, configs, Flyway migrations, docs
@@ -144,6 +168,9 @@ Guidelines for AI coding assistants working on this repository.
 - Changes to the REST API contract (request/response shapes, status
   codes, URL paths)
 - Changes to the DB schema beyond additive migrations
+- Fixing items listed in the README's "Known limitations" section.
+  They are deliberately deferred; don't fix them opportunistically as
+  part of unrelated changes.
 
 ## Build and run reference
 

@@ -280,6 +280,22 @@ See `python3 scripts/generate.py --help` for every flag.
   OpenAPI spec for richer Swagger descriptions.
 - **Authentication** (none today).
 
+## Known limitations
+
+These were found by load-testing and probing the running stack. They
+were consciously deferred to keep the submission focused; each has a
+known fix.
+
+| Limitation | Impact | Planned fix |
+|---|---|---|
+| Repeat-offender count is not concurrency-safe | Parallel requests from one IP can all read the same prior count, so a fast burst is under-scored (20 concurrent events: 6 bonuses instead of 14) | Per-IP `pg_advisory_xact_lock` inside a transaction, plus a concurrent test |
+| Batches are not atomic | If item N fails at the database, items before it are already saved and the client can't tell which | `@Transactional` on `ingestBatch` (all-or-nothing), or a per-item `FAILED` status |
+| Malformed input reaching Postgres returns 409 | An invalid `clientIp` or a `path` over 1024 chars returns 409 Conflict instead of 400 | Map SQLState `22xxx` to 400, or validate at the DTO |
+| No batch size cap | A very large batch is accepted and processed in one request | `@Size(min = 1, max = 10000)` on the request body |
+| Reversed time ranges aren't rejected | `from > to` returns 200 with an empty result instead of 400 | Validate `from <= to` in the stats, samples and time-series services |
+| Ingest throughput | 2–3 DB round trips per event, about 1.4k events/sec on one Postgres; adding replicas doesn't help | Multi-row `INSERT … ON CONFLICT`, one set-based count per batch, then Kafka in front |
+| Generator has no retries | A connection reset crashes the run | Catch `URLError`/`ConnectionError`, retry with backoff |
+
 ## Challenges hit and how I solved them
 
 - **Keeping the domain annotation-free while persisting to Postgres.**
@@ -297,23 +313,25 @@ See `python3 scripts/generate.py --help` for every flag.
   shape.
 - **Deterministic repeat-offender count within a single batch.**
   `IngestionService.ingestBatch` iterates sequentially (not with a
-  parallel stream) so the Nth event's `countByClientIpSince` sees the
-  prior N−1 events already persisted.
+  parallel stream) so the Nth event's `countByClientIpInWindow` sees
+  the prior N−1 events already persisted.
 - **Idempotent re-ingestion.** The schema uses `UNIQUE (event_id)` and
-  the INSERT uses `ON CONFLICT (event_id) DO NOTHING RETURNING id`.
-  The adapter returns a `SecurityEvent` with `id = null` on duplicates,
-  so re-POSTing the same batch is a visible no-op.
+  the INSERT uses `ON CONFLICT (event_id) DO NOTHING RETURNING id`. On
+  a duplicate the service fetches the originally-stored row and returns
+  it with `status: DUPLICATE`, so a replay never fabricates fresh
+  enrichment values.
 
 ### Development notes
 
-This project was developed with Claude Code as a pair-programmer. All
-architectural decisions — storage choice (Postgres + `JdbcClient` over
-JPA), annotation-free domain records, light hexagonal layout, the
-Strategy pattern for threat scoring — were made by me after reviewing
-trade-offs; Claude helped with boilerplate (SQL migrations, test
-fixtures, docker-compose, Jackson configuration). The commit history
-reflects the human decision sequence, not an AI dump. I can walk
-through any part of the code in the interview and explain the
+This project was built with Claude Code as a pair-programmer over a
+focused session. I drove the phase plan and the key decisions (Postgres
++ `JdbcClient` over JPA, annotation-free domain records, the Strategy
+pattern for scoring, `receivedAt` for the repeat-offender window),
+reviewed each change, and steered several course corrections: switching
+stack mid-project, moving the data generator to a stdlib Python script,
+and dropping pieces that were over-engineered for the scope. Each phase
+landed as its own PR with small conventional commits so the work stays
+reviewable. I can walk through any part of the code and the
 alternatives considered.
 
 ## One thing I learned
