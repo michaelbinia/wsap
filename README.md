@@ -7,6 +7,14 @@ for the Akamai CSI group.
 
 ## Architecture
 
+![Mini WSA data flow](docs/dataflow.drawio.svg)
+
+*Data flow: ingest clients write through `POST /v1/events/ingest`; query
+clients read stats, time-series and samples. The diagram is an editable
+draw.io SVG; open `docs/dataflow.drawio.svg` in draw.io to change it.*
+
+Component view:
+
 ```
                                     +--------------------------+
 client -> IngestionController ----> | IngestionService         |
