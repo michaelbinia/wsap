@@ -144,6 +144,9 @@ Guidelines for AI coding assistants working on this repository.
 - Changes to the REST API contract (request/response shapes, status
   codes, URL paths)
 - Changes to the DB schema beyond additive migrations
+- Fixing items listed in the README's "Known limitations" section.
+  They are deliberately deferred; don't fix them opportunistically as
+  part of unrelated changes.
 
 ## Build and run reference
 
